@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MapVerse</title>
+<meta name="theme-color" content="#050505">
+<meta name="description" content="Bản đồ 3D, dẫn đường bằng giọng nói, bản đồ ngoại tuyến và cảnh báo lũ.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="MapVerse">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="cinelocal.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="more.css">
+</head>
+<body class="cl">
+
+<div class="cl-splash" id="splash">
+  <div class="logo"><div class="icon" id="splashIc"></div><div class="name">MapVerse</div></div>
+  <div class="cl-loader"><i></i></div>
+</div>
+
+<header class="cl-titlebar">
+  <div class="cl-logo"><div class="cl-logo-ic" id="logoIc"></div><b>MapVerse</b><span class="cl-badge-neon">LIVE</span></div>
+  <nav class="cl-pills" id="tabs">
+    <button class="cl-pill on" data-tab="explore" data-ic="compass">Khám phá</button>
+    <button class="cl-pill" data-tab="route" data-ic="route">Chỉ đường</button>
+    <button class="cl-pill" data-tab="measure" data-ic="ruler">Đo đạc</button>
+    <button class="cl-pill" data-tab="pins" data-ic="pin">Đã ghim <span class="count" id="pinCount">0</span></button>
+    <button class="cl-pill fl-pill" data-tab="flood" data-ic="waves">Cảnh báo lũ</button>
+    <button class="cl-pill" data-tab="offline" data-ic="wifioff">Ngoại tuyến</button>
+  </nav>
+  <div class="grow"></div>
+  <span class="cl-chip wx-chip" id="wxChip" title="Thời tiết tại tâm bản đồ"><span class="cl-spinner"></span> Thời tiết</span>
+  <button class="cl-chip install-chip" id="installBtn" hidden title="Cài MapVerse thành app trên máy hoặc điện thoại"><i data-ic="download"></i><span>Cài app</span></button>
+  <span class="cl-chip" id="netChip"><span class="cl-dot ok"></span>Trực tuyến</span>
+</header>
+
+<main class="app">
+  <aside class="side cl-sidebar">
+    <!-- KHÁM PHÁ -->
+    <section class="pane on" data-pane="explore">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="compass"></div><div><h2>Khám phá</h2><p>Bấm vào bản đồ để xem chi tiết một điểm</p></div></div>
+
+      <div class="place" id="place">
+        <div class="place-empty"><span data-ic="pin" class="c-red"></span> Chưa chọn điểm nào — bấm hoặc chuột phải lên bản đồ</div>
+      </div>
+
+      <div class="near">
+        <h3 class="cl-row-title">Quanh đây</h3>
+        <div class="near-cats" id="nearCats"></div>
+        <div id="nearList"></div>
+      </div>
+
+      <div class="wx-card cl-box" id="wxCard">
+        <div class="cl-label"><span><i data-ic="sun" class="c-amber"></i>Thời tiết tại tâm bản đồ</span></div>
+        <div class="wx-body" id="wxBody"><div class="cl-hint">Đang tải…</div></div>
+      </div>
+
+      <div>
+        <h3 class="cl-row-title">Điểm đến nổi bật</h3>
+        <div class="spots" id="spots"></div>
+      </div>
+
+      <div class="keys cl-box">
+        <div class="cl-label"><span><i data-ic="zap" class="c-amber"></i>Phím tắt</span></div>
+        <ul>
+          <li><span class="cl-kbd">/</span> Tìm kiếm</li>
+          <li><span class="cl-kbd">L</span> Vị trí của tôi</li>
+          <li><span class="cl-kbd">M</span> Đo đạc</li>
+          <li><span class="cl-kbd">1–4</span> Đổi lớp bản đồ</li>
+          <li><span class="cl-kbd">D</span> Bật/tắt 3D</li>
+          <li><span class="cl-kbd">O</span> Bay vòng (3D)</li>
+          <li><span class="cl-kbd">Esc</span> Đóng / dừng</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- CHỈ ĐƯỜNG -->
+    <section class="pane" data-pane="route">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="route"></div><div><h2>Chỉ đường</h2><p>Gõ địa chỉ hoặc chuột phải lên bản đồ để chọn điểm</p></div></div>
+
+      <div class="rt-inputs">
+        <div class="rt-line"><i class="rt-dot a">A</i><div class="sugg-wrap"><input class="cl-input" id="rtFrom" placeholder="Điểm xuất phát" autocomplete="off"></div></div>
+        <div class="rt-line"><i class="rt-dot b">B</i><div class="sugg-wrap"><input class="cl-input" id="rtTo" placeholder="Điểm đến" autocomplete="off"></div></div>
+        <button class="cl-icon-btn rt-swap" id="rtSwap" title="Đảo chiều" data-ic="swap"></button>
+      </div>
+      <button class="cl-btn rt-me" id="rtMe"><i data-ic="locate"></i>Xuất phát từ vị trí của tôi</button>
+
+      <div class="cl-seg" id="rtMode">
+        <button class="on" data-mode="moto"><i data-ic="moto"></i> Xe máy</button>
+        <button data-mode="car"><i data-ic="car"></i> Ô tô</button>
+        <button data-mode="bike"><i data-ic="bike"></i> Xe đạp</button>
+        <button data-mode="foot"><i data-ic="walk"></i> Đi bộ</button>
+      </div>
+
+      <button class="cl-cta" id="rtGo" disabled><i data-ic="nav"></i>Tìm đường</button>
+
+      <div id="rtResult"></div>
+    </section>
+
+    <!-- ĐO ĐẠC -->
+    <section class="pane" data-pane="measure">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="ruler"></div><div><h2>Đo đạc</h2><p>Bấm lần lượt các điểm trên bản đồ</p></div></div>
+      <div class="cl-seg" id="msMode">
+        <button class="on" data-mode="line"><i data-ic="ruler"></i> Khoảng cách</button>
+        <button data-mode="area"><i data-ic="polygon"></i> Diện tích</button>
+      </div>
+      <div class="ms-read cl-box">
+        <em class="num" id="msNum">0</em>
+        <div class="cl-label"><span><i data-ic="ruler" class="c-red"></i><span id="msLabel">Tổng quãng đường</span></span></div>
+        <div class="ms-val"><b id="msVal">0</b><small id="msUnit">m</small></div>
+        <div class="cl-hint" id="msSub">Chưa có điểm nào</div>
+      </div>
+      <label class="cl-switch"><input type="checkbox" id="msOn"><div class="txt"><b>Bật chế độ đo</b><span class="cl-hint">Bấm vào bản đồ để thêm điểm</span></div><div class="sw"></div></label>
+      <div class="row2">
+        <button class="cl-btn" id="msUndo"><i data-ic="undo"></i>Bỏ điểm cuối</button>
+        <button class="cl-btn" id="msClear"><i data-ic="trash"></i>Xoá hết</button>
+      </div>
+    </section>
+
+    <!-- ĐÃ GHIM -->
+    <section class="pane" data-pane="pins">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="pin"></div><div><h2>Đã ghim</h2><p>Lưu trên máy này, mở lại vẫn còn</p></div></div>
+      <div class="row2">
+        <button class="cl-btn" id="pinExport"><i data-ic="download"></i>Xuất file</button>
+        <button class="cl-btn" id="pinImport"><i data-ic="upload"></i>Nhập file</button>
+        <input type="file" id="pinFile" accept=".geojson,.json" hidden>
+      </div>
+      <div class="pins" id="pinList"></div>
+    </section>
+
+    <!-- CẢNH BÁO LŨ -->
+    <section class="pane" data-pane="flood">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="waves"></div><div><h2>Cảnh báo lũ</h2><p>Lũ sông · mưa lớn · lũ quét và sạt lở vùng núi</p></div></div>
+      <div class="row2">
+        <button class="cl-cta" id="flHere" title="Phân tích nguy cơ lũ tại tâm bản đồ"><i data-ic="waves"></i>Phân tích</button>
+        <button class="cl-btn" id="flMe" title="Phân tích vị trí của tôi"><i data-ic="locate"></i>Chỗ tôi</button>
+      </div>
+      <div id="flResult"><div class="place-empty"><span data-ic="waves" class="c-red"></span> Kéo bản đồ tới nơi cần xem rồi bấm Phân tích, hoặc chuột phải lên bản đồ → Kiểm tra nguy cơ lũ.</div></div>
+
+      <div class="fl-region">
+        <h3 class="cl-row-title">Nguy cơ cả vùng</h3>
+        <div class="rg-act">
+          <button class="cl-btn red" id="rgGo" title="Quét nguy cơ lũ trên toàn vùng đang xem"><i data-ic="grid"></i>Quét vùng đang xem</button>
+          <button class="cl-icon-btn" id="rgClear" title="Ẩn bản đồ nguy cơ" hidden><i data-ic="x"></i></button>
+        </div>
+        <div id="rgResult"><span class="cl-hint">Chia vùng đang xem thành ô lưới, tô màu từng ô theo cấp nguy cơ. Bấm vào ô để xem chi tiết.</span></div>
+      </div>
+
+      <div class="fl-layers">
+        <h3 class="cl-row-title">Lớp bản đồ</h3>
+        <label class="cl-switch"><input type="checkbox" id="flRadar"><div class="txt"><b>Radar mưa trực tiếp <span class="fl-rtime" id="flRadarTime"></span></b><span class="cl-hint">Mây mưa 2 giờ qua và 30 phút tới, chạy liên tục</span></div><div class="sw"></div></label>
+        <label class="cl-switch"><input type="checkbox" id="flGrid"><div class="txt"><b>Bản đồ mưa 3 ngày tới</b><span class="cl-hint">Tô màu tổng lượng mưa trên vùng đang xem</span></div><div class="sw"></div></label>
+        <label class="cl-switch"><input type="checkbox" id="flEvents"><div class="txt"><b>Lũ đang diễn ra trên thế giới</b><span class="cl-hint">Các trận lũ được cảnh báo quốc tế</span></div><div class="sw"></div></label>
+      </div>
+
+      <div>
+        <h3 class="cl-row-title">Theo dõi nơi đã ghim</h3>
+        <div class="row2"><button class="cl-btn" id="flPinsGo"><i data-ic="waves"></i>Kiểm tra ngay</button></div>
+        <label class="cl-switch" style="margin-top:8px"><input type="checkbox" id="flAlarm"><div class="txt"><b>Báo động khi nguy hiểm</b><span class="cl-hint">Kiểm tra lại mỗi 3 giờ khi app đang mở, hiện thông báo nếu tới cấp Cảnh báo</span></div><div class="sw"></div></label>
+        <div id="flPins" class="fl-pins"></div>
+      </div>
+      <div class="legend cl-box">
+        <div class="cl-label"><span><i data-ic="alert" class="c-amber"></i>Các cấp</span></div>
+        <div class="fl-legend"><span><i class="dot b0"></i>An toàn</span><span><i class="dot b1"></i>Theo dõi</span><span><i class="dot b2"></i>Cảnh báo</span><span><i class="dot b3"></i>Nguy hiểm</span></div>
+      </div>
+    </section>
+
+    <!-- NGOẠI TUYẾN -->
+    <section class="pane" data-pane="offline">
+      <div class="cl-head"><div class="cl-head-ic" data-ic="wifioff"></div><div><h2>Ngoại tuyến</h2><p>Tải trước bản đồ để xem khi mất mạng</p></div></div>
+      <div class="cl-box off-now">
+        <div class="cl-label"><span><i data-ic="download" class="c-red"></i>Vùng đang thấy trên màn hình</span></div>
+        <div class="off-est" id="offEst"></div>
+        <div class="cl-hint" id="offWhy"></div>
+        <button class="cl-cta" id="offGo"><i data-ic="download"></i>Tải vùng này</button>
+        <div class="off-prog" id="offProg">
+          <div class="cl-ring"><svg viewBox="0 0 86 86"><circle class="bg" cx="43" cy="43" r="38"/><circle class="fg" id="offRing" cx="43" cy="43" r="38" stroke-dasharray="238.76" stroke-dashoffset="238.76"/></svg><b id="offPct">0%</b></div>
+          <div class="off-pt"><span class="cl-tag amber">ĐANG TẢI</span><span class="cl-hint cl-mono" id="offTxt"></span><button class="cl-btn" id="offCancel"><i data-ic="x"></i>Dừng</button></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="cl-row-title">Vùng đã tải</h3>
+        <div class="pins" id="offList"></div>
+      </div>
+      <div class="cl-box" id="offStore"></div>
+      <div class="cl-hint">Khi mất mạng: xem bản đồ các vùng đã tải (tự chuyển sang khung 3D), ghim, đo đạc. Tìm kiếm, chỉ đường, thời tiết và cảnh báo cần có mạng.</div>
+    </section>
+  </aside>
+
+  <div class="stage">
+    <div id="map"></div>
+
+    <div class="search cl-glass" id="search">
+      <i data-ic="search" class="s-ic"></i>
+      <input id="q" placeholder="Tìm địa điểm, địa chỉ, toạ độ…" autocomplete="off">
+      <span class="cl-kbd">/</span>
+      <div class="sugg" id="qSugg"></div>
+    </div>
+
+    <div class="layers cl-glass" id="layers">
+      <button class="on" data-layer="dark" title="Phím 1"><span class="sw sw-dark"></span>Đêm</button>
+      <button data-layer="street" title="Phím 2"><span class="sw sw-street"></span>Đường phố</button>
+      <button data-layer="sat" title="Phím 3"><span class="sw sw-sat"></span>Vệ tinh</button>
+      <button data-layer="topo" title="Phím 4"><span class="sw sw-topo"></span>Địa hình</button>
+    </div>
+
+    <div id="map3d"></div>
+    <div class="m3-loading" id="m3Loading"><div class="cl-scan"></div><div class="cl-grid-overlay"></div><span><span class="cl-spinner"></span> Đang dựng thế giới 3D…</span></div>
+
+    <div class="m3-panel cl-glass" id="m3Panel">
+      <button class="m3-compass" id="m3North" title="Về hướng Bắc"><i id="m3Needle"></i><b>B</b></button>
+      <div class="m3-sl">
+        <div class="cl-label"><span><i data-ic="mountain" class="c-red"></i>Nghiêng</span><output id="m3PitchV">60°</output></div>
+        <input type="range" class="cl-range" id="m3Pitch" min="0" max="85" value="60">
+      </div>
+      <div class="m3-sl">
+        <div class="cl-label"><span><i data-ic="undo" class="c-amber"></i>Xoay</span><output id="m3BearV">-20°</output></div>
+        <input type="range" class="cl-range" id="m3Bear" min="-180" max="180" value="-20">
+      </div>
+      <button class="cl-btn" id="m3Orbit"><i data-ic="orbit"></i>Bay vòng</button>
+      <div class="m3-hint" id="m3Hint"></div>
+    </div>
+
+    <div class="tools">
+      <button class="cl-icon-btn b3d" id="btn3d" title="Chế độ 3D (phím D)">3D</button>
+      <button class="cl-icon-btn" id="zIn" title="Phóng to" data-ic="plus"></button>
+      <button class="cl-icon-btn" id="zOut" title="Thu nhỏ" data-ic="minus"></button>
+      <button class="cl-icon-btn" id="locBtn" title="Vị trí của tôi (L)" data-ic="locate"></button>
+      <button class="cl-icon-btn" id="shareBtn" title="Chép liên kết vị trí này" data-ic="link"></button>
+      <button class="cl-icon-btn" id="fsBtn" title="Toàn màn hình" data-ic="expand"></button>
+    </div>
+
+    <div class="hud">
+      <em class="zbig" id="zBig">6</em>
+      <div class="hud-txt">
+        <span class="cl-label"><span><i data-ic="crosshair" class="c-red"></i>Mức phóng · Toạ độ</span></span>
+        <b class="cl-mono" id="coord">—</b>
+      </div>
+    </div>
+    <div class="nav" id="nav">
+      <div class="nav-top">
+        <div class="nav-ic" id="navIc"></div>
+        <div class="nav-main"><div class="nav-dist" id="navDist">—</div><div class="nav-txt" id="navTxt"></div></div>
+        <div class="nav-then" id="navThen"></div>
+      </div>
+      <div class="nav-bot cl-glass">
+        <div class="nav-stat"><b id="navEta">--:--</b><small>Giờ đến</small></div>
+        <div class="nav-stat"><b id="navLeftT">—</b><small>Còn lại</small></div>
+        <div class="nav-stat"><b id="navLeftD">—</b><small>Quãng đường</small></div>
+        <span class="cl-tag amber" id="navSim" hidden>MÔ PHỎNG</span>
+        <div class="grow"></div>
+        <button class="cl-icon-btn" id="navMute" title="Tắt/bật giọng nói" data-ic="volume"></button>
+        <button class="cl-icon-btn" id="navView" title="Xem toàn tuyến / bám theo" data-ic="route"></button>
+        <button class="cl-btn red" id="navStop"><i data-ic="x"></i>Kết thúc</button>
+      </div>
+    </div>
+    <div class="ms-banner" id="msBanner"><span class="cl-dot busy"></span>Đang đo — bấm để thêm điểm, <span class="cl-kbd">Esc</span> để dừng</div>
+  </div>
+</main>
+
+<div class="ctx cl-glass" id="ctx"></div>
+<div id="toastHost"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
