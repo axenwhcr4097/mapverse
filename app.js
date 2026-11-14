@@ -882,8 +882,22 @@ map.flyTo = (ll, z, o = {}) => {
   m3.flyTo({ center: [ll.lng, ll.lat], zoom: (z ?? map.getZoom()) - 1, duration: (o.duration || 1.2) * 1300, essential: true });
   return map;
 };
+// khung bản đồ quá nhỏ hoặc đang ẩn (kích thước 0) thì lề lớn hơn khung, phép tính mức phóng ra vô nghĩa:
+// lề không vượt 1/4 khung; khung chưa có kích thước thì đợi nó hiện ra rồi mới bay
+let pendingFit = null;
+new ResizeObserver(() => {
+  map.invalidateSize({ pan: false });
+  if (pendingFit && map.getSize().x > 60 && map.getSize().y > 60) { const [b, o] = pendingFit; pendingFit = null; map.flyToBounds(b, o); }
+}).observe($('#map'));
 map.flyToBounds = (b, o = {}) => {
-  if (!is3d) return flyBounds2d(b, o);
+  if (!is3d) {
+    map.invalidateSize({ pan: false });
+    const sz = map.getSize();
+    if (sz.x <= 60 || sz.y <= 60) { pendingFit = [b, o]; return map; }
+    pendingFit = null;
+    if (o.padding) o = { ...o, padding: [Math.min(o.padding[0], Math.floor(sz.x / 4)), Math.min(o.padding[1], Math.floor(sz.y / 4))] };
+    return flyBounds2d(b, o);
+  }
   b = L.latLngBounds(b); setOrbit(false);
   const cam = m3.cameraForBounds([[b.getWest(), b.getSouth()], [b.getEast(), b.getNorth()]], { padding: o.padding?.[0] ?? 60, maxZoom: (o.maxZoom || 18) - 1, bearing: m3.getBearing() });
   if (cam) m3.flyTo({ ...cam, pitch: m3.getPitch(), duration: (o.duration || 1.2) * 1300, essential: true });
