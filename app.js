@@ -3,6 +3,7 @@
 
 /* ---------- Icon ---------- */
 const P = {
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
   search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   pin:'<path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
   nav:'<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
@@ -259,7 +260,7 @@ async function geocode(q, signal) {
     const p = f.properties, [lng, lat] = f.geometry.coordinates;
     const name = p.name || [p.housenumber, p.street].filter(Boolean).join(' ') || p.city || 'Không tên';
     const sub = [p.name && p.street ? [p.housenumber, p.street].filter(Boolean).join(' ') : '', p.district, p.city !== name ? p.city : '', p.state, p.country].filter(Boolean).join(', ');
-    return { name, sub, ll: L.latLng(lat, lng), type: p.type, key: p.osm_key, ext: p.extent };
+    return { name, sub, ll: L.latLng(lat, lng), type: p.type, key: p.osm_key, ext: p.extent, osm: p.osm_id ? p.osm_type + p.osm_id : '' };
   });
 }
 async function reverse(ll) {
@@ -267,13 +268,13 @@ async function reverse(ll) {
     const d = await getJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${ll.lat}&lon=${ll.lng}&zoom=18&accept-language=vi`, { timeout: 6000 });
     if (d.error) return null;
     const a = d.address || {};
-    return { name: d.name || [a.house_number, a.road].filter(Boolean).join(' ') || a.suburb || a.city || a.state || 'Điểm đã chọn', addr: d.display_name, area: [a.city || a.town || a.county, a.state].filter(Boolean).join(', ') };
+    return { osm: d.name && d.osm_id ? d.osm_type[0].toUpperCase() + d.osm_id : '', name: d.name || [a.house_number, a.road].filter(Boolean).join(' ') || a.suburb || a.city || a.state || 'Điểm đã chọn', addr: d.display_name, area: [a.city || a.town || a.county, a.state].filter(Boolean).join(', ') };
   } catch (e) {
     // nguồn dự phòng
     const f = (await getJSON(`https://photon.komoot.io/reverse?lat=${ll.lat}&lon=${ll.lng}&lang=default&limit=1`)).features?.[0];
     if (!f) return null;
     const p = f.properties, road = [p.housenumber, p.street].filter(Boolean).join(' ');
-    return { name: p.name || road || p.district || p.city || 'Điểm đã chọn', addr: [p.name ? road : '', p.district, p.city, p.state, p.country].filter(Boolean).join(', '), area: [p.city || p.county || p.district, p.state].filter(Boolean).join(', ') };
+    return { osm: p.name && p.osm_id ? p.osm_type + p.osm_id : '', name: p.name || road || p.district || p.city || 'Điểm đã chọn', addr: [p.name ? road : '', p.district, p.city, p.state, p.country].filter(Boolean).join(', '), area: [p.city || p.county || p.district, p.state].filter(Boolean).join(', ') };
   }
 }
 
@@ -282,7 +283,7 @@ const recentGet = () => { try { return JSON.parse(localStorage.getItem('mv.recen
 function recentAdd(it) {
   if (it.sub === 'Toạ độ') return; // toạ độ gõ tay không cần nhớ
   const r = recentGet().filter(x => x.name !== it.name);
-  r.unshift({ name: it.name, sub: it.sub || '', lat: it.ll.lat, lng: it.ll.lng, ext: it.ext || null, t: it.type === 'recent' ? it.t0 : it.type });
+  r.unshift({ name: it.name, sub: it.sub || '', lat: it.ll.lat, lng: it.ll.lng, ext: it.ext || null, osm: it.osm || '', t: it.type === 'recent' ? it.t0 : it.type });
   try { localStorage.setItem('mv.recent', JSON.stringify(r.slice(0, RECENT_MAX))); } catch {}
 }
 function suggest(input, box, onPick, { recent = false } = {}) {
@@ -299,7 +300,7 @@ function suggest(input, box, onPick, { recent = false } = {}) {
   const pick = it => { input.value = it.name; close(); if (recent) recentAdd(it); onPick(it); };
   const showRecent = () => {
     if (!recent || input.value.trim()) return false;
-    items = recentGet().map(x => ({ name: x.name, sub: x.sub, ll: L.latLng(x.lat, x.lng), ext: x.ext, type: 'recent', t0: x.t }));
+    items = recentGet().map(x => ({ name: x.name, sub: x.sub, ll: L.latLng(x.lat, x.lng), ext: x.ext, osm: x.osm, type: 'recent', t0: x.t }));
     hl = -1;
     if (items.length) draw(); else close();
     return true;
@@ -344,17 +345,20 @@ let selMarker = null, selData = null;
 async function selectPoint(ll, known) {
   if (selMarker) map.removeLayer(selMarker);
   selMarker = L.marker(ll, { icon: pinIcon('', '', 'mk-sel mk-drop') }).addTo(map);
-  selData = { ll, name: known?.name || 'Đang xác định…', addr: known?.sub || '' };
+  selData = { ll, name: known?.name || 'Đang xác định…', addr: known?.sub || '', osm: known?.osm || '' };
   if (tab !== 'route') setTab('explore');
+  infoCtl?.abort();
   drawPlace(true);
+  if (known?.name) placeInfo(selData);
   if (!known?.sub) {
     try {
       const r = await reverse(ll);
       if (selData?.ll !== ll) return;
-      if (r) Object.assign(selData, { name: known?.name || r.name, addr: r.addr });
+      if (r) Object.assign(selData, { name: known?.name || r.name, addr: r.addr, osm: selData.osm || (known?.name ? '' : r.osm) });
       else Object.assign(selData, { name: known?.name || 'Vùng chưa có tên', addr: 'Không có địa chỉ cho điểm này' });
     } catch (e) { if (selData?.ll === ll) Object.assign(selData, { name: known?.name || 'Điểm đã chọn', addr: '' }); }
     drawPlace(false);
+    if (!known?.name && selData?.ll === ll) placeInfo(selData);
   }
 }
 function drawPlace(loading) {
@@ -365,6 +369,7 @@ function drawPlace(loading) {
     <div class="meta"><span class="cl-tag">ĐIỂM ĐÃ CHỌN</span>${loading ? '<span class="cl-spinner"></span>' : ''}</div>
     <h3>${esc(d.name)}</h3>
     <div class="addr">${esc(d.addr)}</div>
+    <div class="place-more" id="placeMore"></div>
     <div class="meta"><span class="cl-chip cl-mono">${ic('crosshair', 'c-red')}${fmtLL(d.ll)}</span></div>
     <div class="acts">
       <button class="cl-btn red" data-a="to">${ic('nav')}Chỉ đường tới đây</button>
@@ -376,13 +381,101 @@ function drawPlace(loading) {
   el.querySelector('[data-a=pin]').onclick = () => addPin(d.ll, d.name);
   el.querySelector('[data-a=copy]').onclick = () => copyLL(d.ll);
   el.querySelector('[data-a=flood]').onclick = () => floodAnalyze(d.ll, d.name);
+  drawInfo();
+}
+/* ---------- Thông tin thêm về địa điểm: giờ mở cửa, điện thoại, trang web, ảnh và mô tả ---------- */
+const flatName = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const nameScore = (a, b) => { // 2 = trùng hẳn, 1 = tên này nằm trong tên kia và dài gần bằng nhau, 0 = khác
+  a = flatName(a); b = flatName(b);
+  if (a.length < 3 || b.length < 3) return 0;
+  if (a === b) return 2;
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  return l.includes(s) && s.length / l.length >= .55 ? 1 : 0;
+};
+const CUISINE_VI = { vietnamese: 'Món Việt', noodle: 'Mì, phở', pho: 'Phở', coffee_shop: 'Cà phê', bubble_tea: 'Trà sữa', pizza: 'Pizza', burger: 'Burger', chicken: 'Gà', seafood: 'Hải sản', japanese: 'Món Nhật', sushi: 'Sushi', korean: 'Món Hàn', chinese: 'Món Hoa', thai: 'Món Thái', indian: 'Món Ấn', italian: 'Món Ý', french: 'Món Pháp', barbecue: 'Đồ nướng', vegetarian: 'Món chay', vegan: 'Thuần chay', ice_cream: 'Kem', dessert: 'Tráng miệng', sandwich: 'Bánh mì', regional: 'Đặc sản', asian: 'Món Á', international: 'Món Âu Á', steak_house: 'Bít tết', hotpot: 'Lẩu', tea: 'Trà', breakfast: 'Điểm tâm', bakery: 'Bánh ngọt' };
+const NO_INFO = /^(Đang xác định|Điểm đã chọn|Vùng chưa có tên|Không tên)/;
+let infoCtl;
+function placeInfo(d) {
+  infoCtl?.abort();
+  if (!d.name || NO_INFO.test(d.name) || parseCoord(d.name) || !navigator.onLine) return;
+  const ctl = infoCtl = new AbortController(), signal = ctl.signal, { lat, lng } = d.ll;
+  const info = d.info = {};
+  const put = () => { if (selData === d && !signal.aborted) drawInfo(); };
+  const wiki = async (lang, title, sure) => {
+    const s = await getJSON(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`, { signal, timeout: 9000 });
+    if (s.type !== 'standard' || !s.extract || (info.wiki?.sure && !sure)) return;
+    let text = s.extract;
+    if (text.length > 300) { const cut = text.slice(0, 300), dot = cut.lastIndexOf('. '); text = dot > 140 ? cut.slice(0, dot + 1) : cut.replace(/\s+\S*$/, '') + '…'; }
+    const img = s.thumbnail?.source; // bỏ ảnh là bản đồ vị trí, cờ, huy hiệu, logo: không cho thấy nơi đó trông ra sao
+    info.wiki = { text, img: img && !/.svg|location_map|Flag_of|Coat_of|logo/i.test(img) ? img : "", url: s.content_urls?.desktop?.page, sure };
+    put();
+  };
+  // 1. Bài viết trùng tên với địa điểm: hiện nhanh, kể cả khi nơi này chưa được ghi chi tiết trên bản đồ.
+  //    Chỉ nhận bài trùng hẳn tên; bài có ghi toạ độ thì phải ở gần điểm đang xem
+  (async () => {
+    const g = await getJSON(`https://vi.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(d.name)}&gsrlimit=6&prop=coordinates&format=json&origin=*`, { signal, timeout: 9000 });
+    const hit = Object.values(g.query?.pages || {}).sort((x, y) => x.index - y.index).find(p => {
+      if (nameScore(p.title, d.name) < 2) return false;
+      const c = p.coordinates?.[0];
+      return !c || map.distance(d.ll, L.latLng(c.lat, c.lon)) < 30000;
+    });
+    if (hit) await wiki('vi', hit.title, false);
+  })().catch(() => {});
+  // 2. Thẻ của chính địa điểm trên bản đồ
+  (async () => {
+    const m = /^([NWR])(\d+)$/.exec(d.osm || '');
+    const q = m ? `[out:json][timeout:12];${{ N: 'node', W: 'way', R: 'relation' }[m[1]]}(${m[2]});out tags center;`
+      : `[out:json][timeout:12];nwr(around:90,${lat.toFixed(5)},${lng.toFixed(5)})[name];out tags center 60;`;
+    const r = await Promise.any(POI_SERVERS.map(u => getJSON(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal, timeout: 16000 })));
+    const best = m ? (r.elements[0]?.tags ? [2, 0, r.elements[0].tags] : null) : r.elements.filter(e => e.tags && !e.tags.highway).map(e => {
+      const t = e.tags, sc = Math.max(0, ...[t.name, t['name:vi'], t['name:en'], t.alt_name, t.brand, t.official_name].filter(Boolean).map(n => nameScore(n, d.name)));
+      const p = L.latLng(e.lat ?? e.center?.lat ?? lat, e.lon ?? e.center?.lon ?? lng);
+      return [sc, map.distance(d.ll, p), t];
+    }).filter(x => x[0]).sort((a, b) => b[0] - a[0] || a[1] - b[1])[0];
+    if (!best) return;
+    const t = best[2];
+    info.hours = hoursVi(t.opening_hours);
+    info.phone = (t.phone || t['contact:phone'] || t['contact:mobile'] || '').split(';')[0].trim();
+    let web = t.website || t['contact:website'] || t.url || '';
+    if (web && !/^https?:\/\//i.test(web)) web = 'https://' + web;
+    try { const u = new URL(web); if (/^https?:$/.test(u.protocol)) info.web = { url: u.href, host: u.hostname.replace(/^www\./, '') }; } catch {}
+    info.chips = [
+      ...(t.cuisine || '').split(';').map(c => c.trim()).filter(Boolean).slice(0, 3).map(c => CUISINE_VI[c] || c.replace(/_/g, ' ')),
+      /^[1-5]/.test(t.stars || '') ? `${parseInt(t.stars)} sao` : '',
+      /^(wlan|yes)$/.test(t.internet_access || '') ? 'Có Wi-Fi' : '',
+      t.wheelchair === 'yes' ? 'Xe lăn vào được' : '',
+    ].filter(Boolean);
+    put();
+    if (t.wikipedia && /^[a-z-]{2,10}:/.test(t.wikipedia)) { const i = t.wikipedia.indexOf(':'); return wiki(t.wikipedia.slice(0, i), t.wikipedia.slice(i + 1), true); }
+    if (/^Q\d+$/.test(t.wikidata || '')) {
+      const w = await getJSON(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${t.wikidata}&props=sitelinks&sitefilter=viwiki%7Cenwiki&format=json&origin=*`, { signal, timeout: 9000 });
+      const sl = w.entities?.[t.wikidata]?.sitelinks || {};
+      if (sl.viwiki) return wiki('vi', sl.viwiki.title, true);
+      if (sl.enwiki) return wiki('en', sl.enwiki.title, true);
+    }
+  })().catch(() => {});
+}
+function drawInfo() {
+  const el = $('#placeMore'), i = selData?.info;
+  if (!el) return;
+  if (!i) { el.innerHTML = ''; return; }
+  const rows = [
+    i.hours && `<div class="pm-r">${ic('clock', 'c-amber')}<span>${esc(i.hours)}</span></div>`,
+    i.phone && `<a class="pm-r" href="tel:${esc(i.phone.replace(/[^\d+]/g, ''))}">${ic('phone', 'c-neon')}<span>${esc(i.phone)}</span></a>`,
+    i.web && `<a class="pm-r" href="${esc(i.web.url)}" target="_blank" rel="noopener noreferrer">${ic('globe', 'c-blue')}<span>${esc(i.web.host)}</span></a>`,
+  ].filter(Boolean).join('');
+  el.innerHTML = (i.wiki?.img ? `<img class="pm-img" src="${esc(i.wiki.img)}" alt="" referrerpolicy="no-referrer">` : '') +
+    (i.chips?.length ? `<div class="pm-chips">${i.chips.map(c => `<span class="cl-chip">${esc(c)}</span>`).join('')}</div>` : '') +
+    (rows ? `<div class="pm-rows">${rows}</div>` : '') +
+    (i.wiki ? `<p class="pm-wiki">${esc(i.wiki.text)}${i.wiki.url ? ` <a href="${esc(i.wiki.url)}" target="_blank" rel="noopener noreferrer">Đọc thêm trên Wikipedia</a>` : ''}</p>` : '');
+  el.querySelector('.pm-img')?.addEventListener('error', e => e.target.remove());
 }
 async function copyLL(ll) { if (await copyText(fmtLL(ll))) toast('Đã chép toạ độ', fmtLL(ll), { ok: true }); else toast('Chưa chép được', fmtLL(ll)); }
 
 suggest($('#q'), $('#qSugg'), it => {
   if (it.ext) map.flyToBounds([[it.ext[1], it.ext[0]], [it.ext[3], it.ext[2]]], { duration: 1.4, maxZoom: 16 });
   else map.flyTo(it.ll, 16, { duration: 1.4 });
-  selectPoint(it.ll, { name: it.name, sub: it.sub || TYPE_VI[it.type === 'recent' ? it.t0 : it.type] || '' });
+  selectPoint(it.ll, { name: it.name, osm: it.osm, sub: it.sub || TYPE_VI[it.type === 'recent' ? it.t0 : it.type] || '' });
 }, { recent: true });
 
 map.on('click', e => {
@@ -1028,7 +1121,7 @@ async function nearFast(cat, c, R, signal) {
   const d = await getJSON(`https://photon.komoot.io/reverse?lat=${c.lat}&lon=${c.lng}&lang=default&radius=${(R / 1000).toFixed(2)}&limit=60${tags}`, { signal });
   return d.features.map(f => {
     const p = f.properties, [lng, lat] = f.geometry.coordinates, kind = KIND_VI[p.osm_value] || label;
-    return { ll: L.latLng(lat, lng), name: p.name || `${kind} chưa có tên`, kind, addr: [p.housenumber, p.street].filter(Boolean).join(' ') };
+    return { osm: p.osm_id ? p.osm_type + p.osm_id : '', ll: L.latLng(lat, lng), name: p.name || `${kind} chưa có tên`, kind, addr: [p.housenumber, p.street].filter(Boolean).join(' ') };
   });
 }
 async function nearRich(cat, c, R, signal) {
@@ -1037,7 +1130,7 @@ async function nearRich(cat, c, R, signal) {
   const d = await Promise.any(POI_SERVERS.map(u => getJSON(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal, timeout: 25000 })));
   return d.elements.map(e => {
     const t = e.tags || {}, kind = KIND_VI[t[key]] || label;
-    return { ll: L.latLng(e.lat ?? e.center?.lat, e.lon ?? e.center?.lon), name: t['name:vi'] || t.name || t.brand || t.operator || `${kind} chưa có tên`, kind,
+    return { osm: e.type[0].toUpperCase() + e.id, ll: L.latLng(e.lat ?? e.center?.lat, e.lon ?? e.center?.lon), name: t['name:vi'] || t.name || t.brand || t.operator || `${kind} chưa có tên`, kind,
       addr: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '), hours: hoursVi(t.opening_hours), phone: t.phone || t['contact:phone'] };
   });
 }
@@ -1067,7 +1160,7 @@ function renderNear(items, icn, label, R, rich) {
   nearLayer.clearLayers();
   const sub = it => [it.kind, it.addr].filter(Boolean).join(' · ');
   items.forEach(it => L.marker(it.ll, { icon: L.divIcon({ className: 'mk', html: `<div class="poi">${ic(icn)}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) })
-    .on('click', () => selectPoint(it.ll, { name: it.name, sub: sub(it) })).addTo(nearLayer));
+    .on('click', () => selectPoint(it.ll, { name: it.name, sub: sub(it), osm: it.osm })).addTo(nearLayer));
   const [rv, ru] = fmtDist(R);
   if (!items.length) { $('#nearList').innerHTML = `<div class="place-empty">${ic(icn, 'c-red')} Không thấy ${label.toLowerCase()} nào trong ${rv} ${ru}. Thử kéo bản đồ sang chỗ khác hoặc thu nhỏ.</div>`; return; }
   $('#nearList').innerHTML = `<div class="near-head"><b>${items.length}</b><span>${label.toLowerCase()} trong bán kính ${rv} ${ru}</span>${rich ? '' : '<span class="cl-spinner" title="Đang lấy thêm giờ mở cửa, số điện thoại…"></span>'}</div>` +
@@ -1087,7 +1180,7 @@ function renderNear(items, icn, label, R, rich) {
     if (e.target.closest('a')) return;
     if (e.target.closest('[data-a=nav]')) return routeTo(it.ll, it.name);
     map.flyTo(it.ll, Math.max(map.getZoom(), 17), { duration: 1 });
-    selectPoint(it.ll, { name: it.name, sub: sub(it) });
+    selectPoint(it.ll, { name: it.name, sub: sub(it), osm: it.osm });
   });
 }
 
